@@ -174,6 +174,8 @@ def setup_apt(state: MkosiState, repos: Sequence[str]) -> None:
             APT::Install-Recommends "false";
             APT::Get::Assume-Yes "true";
             APT::Get::AutomaticRemove "true";
+            APT::Get::allow-change-held-packages "true";
+            APT::Get::allow-remove-essential "true";
             APT::Sandbox::User "root";
             Dir::Cache "{state.cache}";
             Dir::State "{state.workspace / "apt"}";
