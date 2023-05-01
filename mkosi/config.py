@@ -1964,6 +1964,11 @@ def load_config(args: argparse.Namespace) -> MkosiConfig:
             output = prefix
         args.output = Path(output)
 
+    if "_" in str(args.output) and args.output_format == OutputFormat.subvolume:
+        old = str(args.output)
+        args.output = args.output.parent / args.output.with_name(str(args.output.name).replace('_','-'))
+        logging.warning(f"subvolume (systemd-machined) names cannot contain underscore(_); converting to hyphen (-). {old} -> {args.output} ")
+
     if args.output_dir is not None:
         if "/" not in str(args.output):
             args.output = args.output_dir / args.output
