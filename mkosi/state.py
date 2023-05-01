@@ -2,6 +2,7 @@
 
 import dataclasses
 import importlib
+import logging
 from pathlib import Path
 
 from mkosi.config import MkosiConfig
@@ -20,6 +21,7 @@ class MkosiState:
     cache: Path
     environment: dict[str, str] = dataclasses.field(init=False)
     installer: DistributionInstaller = dataclasses.field(init=False)
+    btrfs_snapshot: bool
 
     def __post_init__(self) -> None:
         self.environment = self.config.environment.copy()
@@ -38,6 +40,7 @@ class MkosiState:
             die("No installer for this distribution.")
         self.installer = instance
 
+        logging.debug(f"MkosiState: self.root={self.root} self.btrfs_snapshot={self.btrfs_snapshot}")
         self.root.mkdir(exist_ok=True, mode=0o755)
         self.build_overlay.mkdir(exist_ok=True, mode=0o755)
         self.cache_overlay.mkdir(exist_ok=True, mode=0o755)

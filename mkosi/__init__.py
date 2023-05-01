@@ -93,10 +93,26 @@ def btrfs_subvol_create(path: Path, mode: int = 0o755) -> None:
     with set_umask(~mode & 0o7777):
         run(["btrfs", "subvol", "create", path])
 
-
+def btrfs_subvol_snapshot(source: Path, destination: Path, mode: int = 0o755) -> None:
+    with set_umask(~mode & 0o7777):
+        run(["btrfs", "subvol", "snapshot", source, destination])
+    
 @contextlib.contextmanager
 def mount_image(state: MkosiState) -> Iterator[None]:
     with complete_step("Mounting image…", "Unmounting image…"), contextlib.ExitStack() as stack:
+
+        @stack.callback
+        def maybe_btrfs_snapshot():
+            logging.debug(f"maybe_btrs_snapshot()")
+            if state.config.output_format == OutputFormat.subvolume:
+                logging.debug(f"maybe_btrfs_snapshot() may take subvolume snapshot")
+                if state.btrfs_snapshot:
+                    logging.debug(f"maybe_btrfs_snapshot() will take subvolume snapshot")
+                    if not state.root.exists():
+                        logging.critical(f"Not found root: {state.root}")
+                    if not state.config.output.exists():
+                        logging.debug(f"Not found output: {state.config.output}")
+                    btrfs_subvol_snapshot(state.root, state.config.output)
 
         if state.config.base_trees and state.config.overlay:
             bases = []
@@ -118,6 +134,9 @@ def mount_image(state: MkosiState) -> Iterator[None]:
                     die(f"Unsupported base tree source {path}")
 
             stack.enter_context(mount_overlay(bases, state.root, state.workdir, state.root, read_only=False))
+
+        elif state.config.output_format == OutputFormat.subvolume:
+            logging.debug(f"mount_image() subvolume so doing nothing")
 
         yield
 
@@ -1638,8 +1657,30 @@ def acl_toggle_build(state: MkosiState) -> Iterator[None]:
 
 
 def build_stuff(uid: int, gid: int, args: MkosiArgs, config: MkosiConfig) -> None:
+    logging.debug(f"build_stuff() config={config}")
     workspace = tempfile.TemporaryDirectory(dir=config.workspace_dir or Path.cwd(), prefix=".mkosi.tmp")
     workspace_dir = Path(workspace.name)
+
+    findmnt_args= ["findmnt", "--output", "FSTYPE,SOURCE", "--noheadings", "--target"]
+    if config.output_format == OutputFormat.subvolume:
+        wfstype,wfspath = run(findmnt_args + [f"{config.workspace_dir}"], text=True, stdout=subprocess.PIPE).stdout.strip().split()
+        ofstype,ofspath = run(findmnt_args + [f"{config.output_dir}"], text=True, stdout=subprocess.PIPE).stdout.strip().split()
+        logging.debug(f"build_stuff() wfstype={wfstype} wfspath={wfspath} ofstype={ofstype} ofspath={ofspath}")
+
+    if wfstype == ofstype:
+        logging.debug(f"Workspace and Output are BTRFS subvolumes")
+        if wfspath == ofspath:
+            logging.debug(f"Workspace and Output are the same BTRFS file-system path")
+            btrfs_snapshot = True
+            # remove the temporary directory and recreate as a subvolume
+            # workspace_dir.rmdir()
+            # cannot call prepare_tree_root() as no MkosiState exists yet
+            # but need to create this before state is created and its __post_init__() does self.root.mkdir(exist_ok=True, mode=0o755)
+            btrfs_subvol_create(workspace_dir / "root")
+            # FIXME: should really catch a failure here and die() but btrfs_subvol_create() has no return type
+            # expect context clean-up to remove the subvol when it deletes the directory
+
+
     cache = config.cache_dir or workspace_dir / "cache"
 
     state = MkosiState(
@@ -1648,7 +1689,12 @@ def build_stuff(uid: int, gid: int, args: MkosiArgs, config: MkosiConfig) -> Non
         config=config,
         workspace=workspace_dir,
         cache=cache,
+        btrfs_snapshot=btrfs_snapshot,
     )
+
+    # flag that a snapshot should be taken when mount context closes
+    #state.btrfs_snapshot = True if btrfs_snapshot else False
+    logging.debug(f"state.btrfs_snapshot = {state.btrfs_snapshot}")
 
     manifest = Manifest(config)
 
