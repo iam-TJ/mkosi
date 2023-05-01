@@ -1672,8 +1672,6 @@ def build_stuff(uid: int, gid: int, args: MkosiArgs, config: MkosiConfig) -> Non
         if wfspath == ofspath:
             logging.debug(f"Workspace and Output are the same BTRFS file-system path")
             btrfs_snapshot = True
-            # remove the temporary directory and recreate as a subvolume
-            # workspace_dir.rmdir()
             # cannot call prepare_tree_root() as no MkosiState exists yet
             # but need to create this before state is created and its __post_init__() does self.root.mkdir(exist_ok=True, mode=0o755)
             btrfs_subvol_create(workspace_dir / "root")
