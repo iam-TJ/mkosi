@@ -1952,7 +1952,7 @@ def load_config(args: argparse.Namespace) -> MkosiConfig:
 
     if args.output is None:
         iid = args.image_id or args.preset or "image"
-        prefix = f"{iid}_{args.image_version}" if args.image_version is not None else iid
+        prefix = f"{iid}-v{args.image_version}" if args.image_version is not None else iid
 
         if args.output_format == OutputFormat.disk:
             output = f"{prefix}.raw"
