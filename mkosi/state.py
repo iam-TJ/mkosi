@@ -7,6 +7,7 @@ from pathlib import Path
 from mkosi.config import MkosiConfig
 from mkosi.distributions import DistributionInstaller
 from mkosi.log import die
+from mkosi.util import OutputFormat
 
 
 @dataclasses.dataclass
@@ -18,6 +19,7 @@ class MkosiState:
     config: MkosiConfig
     workspace: Path
     cache: Path
+    output_format: OutputFormat
     environment: dict[str, str] = dataclasses.field(init=False)
     installer: DistributionInstaller = dataclasses.field(init=False)
     btrfs_snapshot: bool = False

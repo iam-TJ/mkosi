@@ -105,7 +105,7 @@ def mount_image(state: MkosiState) -> Iterator[None]:
 
         @stack.callback
         def maybe_btrfs_snapshot() -> None:
-            if state.config.output_format == OutputFormat.subvolume:
+            if state.output_format == OutputFormat.subvolume:
                 if state.btrfs_snapshot:
                     logging.debug("maybe_btrfs_snapshot() will take subvolume snapshot")
                     if not state.root.exists():
@@ -113,6 +113,9 @@ def mount_image(state: MkosiState) -> Iterator[None]:
                     if state.config.output.exists():
                         logging.critical(f"Found unexpected existing output: {state.config.output}")
                     btrfs_subvol_snapshot(state.root, state.config.output)
+                    if not state.output_format == state.config.output_format:
+                        # when different it means a read-only subvol is required
+                        run(["btrfs", "property", "set", "-t", "subvol", f"{state.config.output}", "ro", "true"])
 
         if state.config.base_trees and state.config.overlay:
             bases = []
@@ -139,7 +142,7 @@ def mount_image(state: MkosiState) -> Iterator[None]:
 
 
 def prepare_tree_root(state: MkosiState) -> None:
-    if state.config.output_format == OutputFormat.subvolume:
+    if state.output_format == OutputFormat.subvolume:
         with complete_step("Setting up OS tree root…"):
             btrfs_subvol_create(state.root)
 
@@ -965,7 +968,7 @@ def print_output_size(config: MkosiConfig) -> None:
     if not config.output_compressed.exists():
         return
 
-    if config.output_format in (OutputFormat.directory, OutputFormat.subvolume):
+    if config.output_format in (OutputFormat.directory, OutputFormat.subvolume, OutputFormat.subvolume_ro):
         log_step("Resulting image size is " + format_bytes(dir_size(config.output)) + ".")
     else:
         st = os.stat(config.output_compressed)
@@ -1659,7 +1662,7 @@ def build_stuff(uid: int, gid: int, args: MkosiArgs, config: MkosiConfig) -> Non
 
     btrfs_snapshot = False
     findmnt_args= ["findmnt", "--output", "FSTYPE,SOURCE", "--noheadings", "--target"]
-    if config.output_format == OutputFormat.subvolume:
+    if config.output_format in [OutputFormat.subvolume, OutputFormat.subvolume_ro]:
         wfstype,wfspath = run(findmnt_args + [f"{config.workspace_dir}"], text=True, stdout=subprocess.PIPE).stdout.strip().split()
         ofstype,ofspath = run(findmnt_args + [f"{config.output_dir}"], text=True, stdout=subprocess.PIPE).stdout.strip().split()
 
@@ -1680,8 +1683,14 @@ def build_stuff(uid: int, gid: int, args: MkosiArgs, config: MkosiConfig) -> Non
         config=config,
         workspace=workspace_dir,
         cache=cache,
+        output_format=config.output_format,
         btrfs_snapshot=btrfs_snapshot,
     )
+
+    if state.config.output_format == OutputFormat.subvolume_ro:
+        # when these are different output BTRFS subvol should be set read-only
+        state.output_format = OutputFormat.subvolume
+        logging.debug(f"output_format={state.config.output_format} {state.output_format}")
 
     manifest = Manifest(config)
 
@@ -1769,7 +1778,7 @@ def acl_toggle_boot(config: MkosiConfig) -> Iterator[None]:
 def run_shell(args: MkosiArgs, config: MkosiConfig) -> None:
     cmdline: list[PathString] = ["systemd-nspawn", "--quiet"]
 
-    if config.output_format in (OutputFormat.directory, OutputFormat.subvolume):
+    if config.output_format in (OutputFormat.directory, OutputFormat.subvolume, OutputFormat.subvolume_ro):
         cmdline += ["--directory", config.output]
 
         owner = os.stat(config.output).st_uid
